@@ -17,7 +17,6 @@ indexTickerNameUnivSR_default = np.array(['沪深300', '上证50', '中证500'])
 conn243 = pymssql.connect(server='192.168.1.243', user="yuman.hu", password="yuman.hu")
 conn247 = pymssql.connect(server='192.168.1.247', user="yuman.hu", password="yuman.hu")
 
-
 # daily data download
 class dailyQuant(object):
 
@@ -105,6 +104,92 @@ class dailyQuant(object):
         pd.DataFrame(tickerUnivTypeR).T.to_csv(self.rawData_path+'tickerUnivTypeR.csv', header=False, index=False)
 
         return tickerUnivSR, stockTickerUnivSR, tickerNameUnivSR, stockTickerNameUnivSR, tickerUnivTypeR
+
+    def get_tradingData(self):
+
+        sql = '''
+        SELECT A.[TradingDay], B.[SecuMarket], B.[SecuCode], A.[PrevClosePrice],
+        A.[OpenPrice],A.[HighPrice],A.[LowPrice],A.[ClosePrice], A.[TurnoverVolume],A.[TurnoverValue]
+        FROM [JYDB].[dbo].[QT_DailyQuote] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        where A.tradingday>='%s' 
+        order by TradingDay asc 
+        ''' % self.startDate
+
+        dataStock = pd.read_sql_query(sql, conn243)
+
+        sql = '''
+        SELECT A.[TradingDay], B.[SecuMarket], B.[SecuCode], A.[PrevClosePrice],
+        A.[OpenPrice],A.[HighPrice],A.[LowPrice],A.[ClosePrice], A.[TurnoverVolume],A.[TurnoverValue]
+        FROM [JYDB].[dbo].[QT_IndexQuote] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
+        and B.SecuCategory=4 
+        where A.tradingday>='%s' 
+        order by TradingDay asc 
+        ''' % self.startDate
+
+        dataIndex = pd.read_sql_query(sql, conn243)
+
+        dataV = pd.concat([dataIndex,dataStock])
+
+        sql = '''
+        SELECT A.[TradingDay], B.[SecuMarket], B.[SecuCode], A.[StockReturns]  
+        FROM [Group_General].[dbo].[DailyQuote] A 
+        inner join [Group_General].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        where A.tradingday>='%s' 
+        order by TradingDay asc 
+        ''' % self.startDate
+
+        dataStock = pd.read_sql_query(sql, conn247)
+
+        sql = '''
+        SELECT A.[TradingDay], B.[SecuMarket], B.[SecuCode], A.[ChangePCT] 
+        FROM [JYDB].[dbo].[QT_IndexQuote] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
+        and B.SecuCategory=4 
+        where A.tradingday>='%s' 
+        order by TradingDay asc 
+        ''' % self.startDate
+
+        dataIndex = pd.read_sql_query(sql, conn243)
+        dataIndex.ChangePCT = dataIndex.ChangePCT / 100
+        dataIndex = dataIndex.rename({'ChangePCT': 'StockReturns'}, axis='columns')
+
+        dataR = pd.concat([dataIndex, dataStock])
+
+        data = pd.merge(dataV, dataR)
+
+        sql = '''
+        SELECT A.[ExDiviDate], B.[SecuMarket], B.[SecuCode], A.[AdjustingFactor] 
+        FROM [JYDB].[dbo].[QT_AdjustingFactor] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        order by ExDiviDate asc 
+        '''
+
+        dataAF = pd.read_sql_query(sql, conn243)
+        dataAF = dataAF.rename({'ExDiviDate': 'TradingDay'}, axis='columns')
+
+        data = pd.merge(data, dataAF)
+
+        flagMarket = data.SecuMarket==83
+        data['SecuCode'][flagMarket] = data['SecuCode'].map(lambda x: x + '.SH')
+        data['SecuCode'][~flagMarket] = data['SecuCode'].map(lambda x: x + '.SZ')
+        data.TradingDay = data.TradingDay.map(lambda x: x.strftime('%Y%m%d'))
 
     def get_StockEODDerivativeIndicator(self):
 
@@ -205,7 +290,8 @@ class dailyQuant(object):
 
 
 if __name__ == '__main__':
-    db = dailyQuant(startDate=20170801, endDate=20180605)
+    db = dailyQuant(startDate=20180801, endDate=20181001)
+    db.get_tradingData()
 
 
 
