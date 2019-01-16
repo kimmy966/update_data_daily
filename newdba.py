@@ -116,9 +116,8 @@ class dailyQuant(object):
         and B.SecuMarket in (83,90) 
         and B.SecuCategory=1 
         where A.tradingday>='%s' 
-        order by TradingDay asc 
         ''' % self.startDate
-
+#         order by TradingDay asc
         dataStock = pd.read_sql_query(sql, conn243)
 
         sql = '''
@@ -131,9 +130,8 @@ class dailyQuant(object):
         and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
         and B.SecuCategory=4 
         where A.tradingday>='%s' 
-        order by TradingDay asc 
         ''' % self.startDate
-
+#         order by TradingDay asc
         dataIndex = pd.read_sql_query(sql, conn243)
 
         dataV = pd.concat([dataIndex,dataStock])
@@ -151,17 +149,13 @@ class dailyQuant(object):
         volumeM = pd.DataFrame(pd.pivot_table(dataV,values='TurnoverVolume',index='TradingDay',columns='SecuCode'),columns=self.tickerUnivSR)
         amountM = pd.DataFrame(pd.pivot_table(dataV,values='TurnoverValue',index='TradingDay',columns='SecuCode'),columns=self.tickerUnivSR)
 
-
         sql = '''
-        SELECT A.[TradingDay], B.[SecuMarket], B.[SecuCode], A.[StockReturns]  
+        SELECT A.[TradingDay], B.[SecuMarket], A.[StockReturns]  
         FROM [Group_General].[dbo].[DailyQuote] A 
-        inner join [Group_General].[dbo].[SecuMain] B 
         on A.[InnerCode]=B.[InnerCode] 
-        and B.SecuMarket in (83,90) 
-        and B.SecuCategory=1 
         where A.tradingday>='%s' 
-        order by TradingDay asc 
         ''' % self.startDate
+        #         order by TradingDay asc
 
         dataStock = pd.read_sql_query(sql, conn247)
 
@@ -174,8 +168,8 @@ class dailyQuant(object):
         and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
         and B.SecuCategory=4 
         where A.tradingday>='%s' 
-        order by TradingDay asc 
         ''' % self.startDate
+        #         order by TradingDay asc
 
         dataIndex = pd.read_sql_query(sql, conn243)
         dataIndex.ChangePCT = dataIndex.ChangePCT / 100
@@ -188,6 +182,7 @@ class dailyQuant(object):
         dataR['SecuCode'][~flagMarket] = dataR['SecuCode'].map(lambda x: x + '.SZ')
         dataR.TradingDay = dataR.TradingDay.map(lambda x: x.strftime('%Y%m%d'))
 
+        retM = pd.DataFrame(pd.pivot_table(dataR,values='StockReturns',index='TradingDay',columns='SecuCode'), columns=self.tickerUnivSR)
 
         sql = '''
         SELECT A.[ExDiviDate], B.[SecuMarket], B.[SecuCode], A.[AdjustingFactor] 
@@ -196,7 +191,29 @@ class dailyQuant(object):
         on A.[InnerCode]=B.[InnerCode] 
         and B.SecuMarket in (83,90) 
         and B.SecuCategory=1 
-        order by ExDiviDate asc 
+        '''
+
+        dataAF = pd.read_sql_query(sql, conn243)
+
+        flagMarket = dataAF.SecuMarket == 83
+        dataAF['SecuCode'][flagMarket] = dataAF['SecuCode'].map(lambda x: x + '.SH')
+        dataAF['SecuCode'][~flagMarket] = dataAF['SecuCode'].map(lambda x: x + '.SZ')
+
+        dataAF.ExDiviDate = dataAF.ExDiviDate.map(lambda x: x.strftime('%Y%m%d'))
+
+        adjFactorM = pd.pivot_table(dataAF, values='AdjustingFactor', index='ExDiviDate', columns='SecuCode')
+        adjFactorM.fillna(method='pad', inplace=True)
+        adjFactorM = pd.DataFrame(adjFactorM, index=self.tradingDateV, columns=self.tickerUnivSR)
+        adjFactorM.fillna(method='pad', inplace=True)
+
+
+        sql = '''
+        SELECT A.[ExDiviDate], B.[SecuMarket], B.[SecuCode], A.[AdjustingFactor] 
+        FROM [JYDB].[dbo].[QT_AdjustingFactor] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
         '''
 
         dataAF = pd.read_sql_query(sql, conn243)
@@ -306,6 +323,7 @@ class dailyQuant(object):
 if __name__ == '__main__':
     db = dailyQuant(startDate=20190101, endDate=20190114)
     db.get_tradingData()
+
 
 
 
