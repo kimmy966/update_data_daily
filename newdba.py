@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from functools import reduce
 import pickle
+import os
 import pymssql
 
 startDate_default = '20060101'
@@ -36,10 +37,10 @@ class dailyQuant(object):
         sql = '''
         SELECT [tradingday]
         FROM [Group_General].[dbo].[TradingDayList]
-        where tradingday>='%s'
+        where tradingday>='20060101'
         and tradingday<='%s'
         order by tradingday asc
-        ''' % (self.startDate, self.endDate)
+        ''' % self.endDate
 
         dateSV = pd.read_sql(sql, conn247)
 
@@ -105,7 +106,7 @@ class dailyQuant(object):
 
         return tickerUnivSR, stockTickerUnivSR, tickerNameUnivSR, stockTickerNameUnivSR, tickerUnivTypeR
 
-    def get_tradingData(self):
+    def __tradingData(self,tradingDay):
 
         sql = '''
         SELECT A.[TradingDay], B.[SecuMarket], B.[SecuCode], A.[PrevClosePrice],
@@ -115,8 +116,8 @@ class dailyQuant(object):
         on A.[InnerCode]=B.[InnerCode] 
         and B.SecuMarket in (83,90) 
         and B.SecuCategory=1 
-        where A.tradingday>='%s' 
-        ''' % self.startDate
+        where A.tradingday='%s' 
+        ''' % tradingDay
         dataStock = pd.read_sql_query(sql, conn243)
 
         sql = '''
@@ -128,8 +129,8 @@ class dailyQuant(object):
         and B.SecuMarket in (83,90) 
         and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
         and B.SecuCategory=4 
-        where A.tradingday>='%s' 
-        ''' % self.startDate
+        where A.tradingday='%s' 
+        ''' % tradingDay
         dataIndex = pd.read_sql_query(sql, conn243)
 
         dataV = pd.concat([dataIndex,dataStock])
@@ -137,8 +138,8 @@ class dailyQuant(object):
         sql = '''
         SELECT [TradingDay], [SecuCode], [StockReturns]  
         FROM [Group_General].[dbo].[DailyQuote]
-        where tradingday>='%s' 
-        ''' % self.startDate
+        where tradingday='%s' 
+        ''' % tradingDay
 
         dataStock = pd.read_sql_query(sql, conn247)
 
@@ -150,8 +151,8 @@ class dailyQuant(object):
         and B.SecuMarket in (83,90) 
         and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
         and B.SecuCategory=4 
-        where A.tradingday>='%s' 
-        ''' % self.startDate
+        where A.tradingday='%s' 
+        ''' % tradingDay
 
         dataIndex = pd.read_sql_query(sql, conn243)
         dataIndex.ChangePCT = dataIndex.ChangePCT / 100
@@ -166,14 +167,14 @@ class dailyQuant(object):
         data['SecuCode'][~flagMarket] = data['SecuCode'].map(lambda x: x + '.SZ')
         data.TradingDay = data.TradingDay.map(lambda x: x.strftime('%Y%m%d'))
 
-        preCloseM = pd.DataFrame(pd.pivot_table(data,values='PrevClosePrice',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        openM = pd.DataFrame(pd.pivot_table(data,values='OpenPrice',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        highM = pd.DataFrame(pd.pivot_table(data,values='HighPrice',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        lowM =pd.DataFrame(pd.pivot_table(data,values='LowPrice',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        closeM = pd.DataFrame(pd.pivot_table(data,values='ClosePrice',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        volumeM = pd.DataFrame(pd.pivot_table(data,values='TurnoverVolume',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        amountM = pd.DataFrame(pd.pivot_table(data,values='TurnoverValue',index='TradingDay',columns='SecuCode'),index=self.tradingDateV,columns=self.tickerUnivSR)
-        retM = pd.DataFrame(pd.pivot_table(data,values='StockReturns',index='TradingDay',columns='SecuCode'),index=self.tradingDateV, columns=self.tickerUnivSR)
+        preCloseM = pd.DataFrame(pd.pivot_table(data,values='PrevClosePrice',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        openM = pd.DataFrame(pd.pivot_table(data,values='OpenPrice',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        highM = pd.DataFrame(pd.pivot_table(data,values='HighPrice',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        lowM =pd.DataFrame(pd.pivot_table(data,values='LowPrice',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        closeM = pd.DataFrame(pd.pivot_table(data,values='ClosePrice',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        volumeM = pd.DataFrame(pd.pivot_table(data,values='TurnoverVolume',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        amountM = pd.DataFrame(pd.pivot_table(data,values='TurnoverValue',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)],columns=self.tickerUnivSR)
+        retM = pd.DataFrame(pd.pivot_table(data,values='StockReturns',index='TradingDay',columns='SecuCode'),index=[str(tradingDay)], columns=self.tickerUnivSR)
 
         sql = '''
         SELECT A.[ExDiviDate], B.[SecuMarket], B.[SecuCode], A.[AdjustingFactor] 
@@ -191,12 +192,34 @@ class dailyQuant(object):
         dataAF['SecuCode'][flagMarket] = dataAF['SecuCode'].map(lambda x: x + '.SH')
         dataAF['SecuCode'][~flagMarket] = dataAF['SecuCode'].map(lambda x: x + '.SZ')
 
-        dataAF.ExDiviDate = dataAF.ExDiviDate.map(lambda x: x.strftime('%Y%m%d'))
+        dataAF.TradingDay = dataAF.TradingDay.map(lambda x: x.strftime('%Y%m%d'))
 
         adjFactorM = pd.pivot_table(dataAF, values='AdjustingFactor', index='TradingDay', columns='SecuCode')
         adjFactorM.fillna(method='pad', inplace=True)
-        adjFactorM = pd.DataFrame(adjFactorM, index=self.tradingDateV, columns=self.tickerUnivSR)
+        adjFactorM = pd.DataFrame(adjFactorM ,index=self.tradingDateV, columns=self.tickerUnivSR)
         adjFactorM.fillna(method='pad', inplace=True)
+        adjFactorM =pd.DataFrame(adjFactorM ,index=[str(tradingDay)])
+
+        file2 = open(self.rawData_path+tradingDay+'.pkl', 'wb')
+        dic = {'preCloseM': preCloseM,
+               'openM': openM,
+               'highM': highM,
+               'lowM': lowM,
+               'closeM': closeM,
+               'volumeM': volumeM,
+               'amountM': amountM,
+               'retM': retM,
+               'adjFactorM': adjFactorM
+               }
+        pickle.dump(dic, file2)
+        file2.close()
+
+    def get_tradingData(self):
+
+        tradingdays = self.tradingDateV[(self.tradingDateV>=str(self.startDate))&(self.tradingDateV<=str(self.endDate))]
+
+        for tradingday in tradingdays:
+            self.__tradingData(tradingday)
 
 
     def get_StockEODDerivativeIndicator(self):
