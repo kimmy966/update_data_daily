@@ -200,6 +200,146 @@ class dailyQuant(object):
         adjFactorM.fillna(method='pad', inplace=True)
         adjFactorM =pd.DataFrame(adjFactorM ,index=[str(tradingDay)])
 
+        sql = '''
+        SELECT A.[ChangeDate],A.[ChangeType],B.[SecuCode],B.[SecuMarket] 
+        FROM [JYDB].[dbo].[LC_ListStatus] A 
+        inner join [JYDB].[dbo].SecuMain B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        where (A.ChangeType = 1 or A.ChangeType = 4)
+        '''
+
+        dataStock = pd.read_sql_query(sql, conn243)
+
+        sql = '''
+        SELECT A.[PubDate],B.[SecuCode],B.[SecuMarket] 
+        FROM [JYDB].[dbo].[LC_IndexBasicInfo] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[IndexCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
+        and B.SecuCategory=4 
+        '''
+
+        dataIndex = pd.read_sql_query(sql, conn243)
+        dataIndex['ChangeType'] = 1
+        dataIndex = dataIndex.rename({'PubDate': 'ChangeDate'}, axis='columns')
+
+        dataV = pd.concat([dataIndex, dataStock])
+
+        flagMarket = dataV.SecuMarket == 83
+        dataV['SecuCode'][flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SH')
+        dataV['SecuCode'][~flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SZ')
+
+        # dataV.ChangeDate = pd.Series([x.strftime('%Y%m%d') for x in dataV.ChangeDate.values])
+        dataV.ChangeDate = dataV.ChangeDate.map(lambda x: x.strftime('%Y%m%d'))
+
+        listedM = pd.pivot_table(dataV, values='ChangeType', index='ChangeDate', columns='SecuCode')
+        dateTotal = np.union1d(listedM.index.values, [str(tradingDay)])
+        listedM = pd.DataFrame(listedM, index=dateTotal, columns=self.tickerUnivSR)
+
+        listedM[listedM == 4] = 0
+        listedM.fillna(method='pad', inplace=True)
+        listedM = pd.DataFrame(listedM,index= [str(tradingDay)])
+        listedM = listedM.fillna(0)
+
+        sql = '''
+        SELECT A.[SuspendDate],A.[ResumptionDate],A.[SuspendTime], A.[ResumptionTime], B.[SecuCode],B.[SecuMarket] 
+        FROM [JYDB].[dbo].[LC_SuspendResumption] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        '''
+
+        dataSusp = pd.read_sql_query(sql, conn243)
+
+        flagMarket = dataSusp.SecuMarket == 83
+        dataSusp['SecuCode'][flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SH')
+        dataSusp['SecuCode'][~flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SZ')
+
+        dataSusp.SuspendDate = dataSusp.SuspendDate.map(lambda x: x.strftime('%Y%m%d'))
+
+        dataSusp['flag'] = 1
+        startFlag = pd.pivot_table(dataSusp[dataSusp['SuspendDate']==tradingDay], values='flag', index='SuspendDate', columns='SecuCode')
+        try:
+            startFlag = pd.DataFrame(startFlag, index=[str(tradingDay)], columns=self.tickerUnivSR)
+        except:
+            startFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+        endFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+
+        amount = amountM.fillna(0)
+        flag = (amount == 0)
+
+        endFlag[startFlag == 1] = 1
+        endFlag[~flag] = 0
+
+        if tradingDay == self.tradingDateV[0]:
+            suspM = endFlag.fillna(0)
+
+        else:
+            file2 = open('../data/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
+            suspPre = pickle.load(file2)['suspM']
+            file2.close()
+            suspM = pd.concat([suspPre,endFlag],axis=1).fillna(method='pad')
+
+            suspM = pd.DataFrame(suspM,index=[str(tradingDay)])
+
+        suspM[listedM == 0] = 0
+
+        sql='''
+        SELECT A.[SpecialTradeTime],A.[SpecialTradeType],B.[SecuCode],B.[SecuMarket] 
+        FROM [JYDB].[dbo].[LC_SpecialTrade] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[InnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        where (A.[SpecialTradeType]=1 or A.[SpecialTradeType] = 2 or A.[SpecialTradeType] = 5 or A.[SpecialTradeType] = 6)
+        and A.[SpecialTradeTime] = '%s'
+        '''% tradingDay
+
+        if tradingDay == self.tradingDateV[0]:
+            sql = sql.replace('A.[SpecialTradeTime] = ','A.[SpecialTradeTime] <= ')
+            dataV = pd.read_sql_query(sql, conn243)
+
+            flagMarket = dataV.SecuMarket == 83
+            dataV['SecuCode'][flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SH')
+            dataV['SecuCode'][~flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SZ')
+            dataV.SpecialTradeTime = dataV.SpecialTradeTime.map(lambda x: x.strftime('%Y%m%d'))
+
+            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 5] = 1
+            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 2] = 0
+            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 6] = 0
+
+            stStateM = pd.pivot_table(dataV, values='SpecialTradeType', index='SpecialTradeTime', columns='SecuCode')
+            dateTotal = np.union1d(stStateM.index.values,  [str(tradingDay)])
+            stStateM = pd.DataFrame(stStateM, index=dateTotal, columns=self.tickerUnivSR)
+            stStateM = stStateM.fillna(method='pad')
+            stStateM = pd.DataFrame(stStateM, index=[str(tradingDay)])
+            stStateM = stStateM.fillna(0)
+
+        else:
+            dataV = pd.read_sql_query(sql, conn243)
+
+            flagMarket = dataV.SecuMarket == 83
+            dataV['SecuCode'][flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SH')
+            dataV['SecuCode'][~flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SZ')
+            dataV.SpecialTradeTime = dataV.SpecialTradeTime.map(lambda x: x.strftime('%Y%m%d'))
+
+            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 5] = 1
+            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 2] = 0
+            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 6] = 0
+
+            stStateM = pd.pivot_table(dataV, values='SpecialTradeType', index='SpecialTradeTime', columns='SecuCode')
+            file2 = open('../data/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
+            stStatePre = pickle.load(file2)['stStateM']
+            file2.close()
+            stStateM = pd.concat([stStatePre,stStateM],axis=1).fillna(method='pad')
+
+            stStateM = pd.DataFrame(stStateM, index=[str(tradingDay)])
+            stStateM = stStateM.fillna(0)
+
         file2 = open(self.rawData_path+tradingDay+'.pkl', 'wb')
         dic = {'preCloseM': preCloseM,
                'openM': openM,
@@ -209,7 +349,10 @@ class dailyQuant(object):
                'volumeM': volumeM,
                'amountM': amountM,
                'retM': retM,
-               'adjFactorM': adjFactorM
+               'adjFactorM': adjFactorM,
+               'listedM': listedM,
+               'suspM': suspM,
+               'stStateM': stStateM
                }
         pickle.dump(dic, file2)
         file2.close()
@@ -220,7 +363,6 @@ class dailyQuant(object):
 
         for tradingday in tradingdays:
             self.__tradingData(tradingday)
-
 
     def get_StockEODDerivativeIndicator(self):
 
@@ -321,9 +463,8 @@ class dailyQuant(object):
 
 
 if __name__ == '__main__':
-    db = dailyQuant(startDate=20190101, endDate=20190114)
+    db = dailyQuant(startDate=20060101, endDate=20190114)
     db.get_tradingData()
-
 
 
 
