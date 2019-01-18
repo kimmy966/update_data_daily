@@ -378,6 +378,96 @@ class dailyQuant(object):
                 stStateM = pd.DataFrame(stStateM, index=[str(tradingDay)])
                 stStateM = stStateM.fillna(0).astype(int)
 
+        sql = '''
+        SELECT A.[InDate],A.[OutDate],B.[SecuCode] as IndexCode,B.[SecuMarket] as IndexMarket,C.[SecuCode],C.[SecuMarket] 
+        FROM [JYDB].[dbo].[LC_IndexComponent] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[IndexInnerCode]=B.[InnerCode] 
+        and B.SecuMarket in (83,90) 
+        and (B.SecuCode = '000300' or B.SecuCode = '000016' or B.SecuCode = '000905')
+        and B.SecuCategory=4 
+        inner join [JYDB].[dbo].[SecuMain] C 
+        on A.[SecuInnerCode]=C.[InnerCode] 
+        and C.SecuMarket in (83,90) 
+        and C.SecuCategory=1 
+        where A.[InDate] = '%s' or A.[OutDate] = '%s'
+        '''%(tradingDay,tradingDay)
+
+        if tradingDay == self.tradingDateV[0]:
+
+            sql = sql.replace('A.[InDate] = ','A.[InDate] <= ').replace('A.[OutDate] = ','A.[OutDate] <= ')
+            data = pd.read_sql_query(sql, conn243)
+
+            flagMarket = data.SecuMarket==83
+            data['SecuCode'][flagMarket] = data['SecuCode'].map(lambda x: x+'.SH')
+            data['SecuCode'][~flagMarket] = data['SecuCode'].map(lambda x: x+'.SZ')
+            flagMarket = data.IndexMarket==83
+            data['IndexCode'][flagMarket] = data['IndexCode'].map(lambda x: x+'.SH')
+            data['IndexCode'][~flagMarket] = data['IndexCode'].map(lambda x: x+'.SZ')
+            data.InDate = data.InDate.map(lambda x: x.strftime('%Y%m%d'))
+            flagDate = pd.notnull(data.OutDate)
+            data.OutDate[flagDate] = data.OutDate[flagDate].map(lambda x: x.strftime('%Y%m%d'))
+
+            data['flag_start'] = 1
+            data['flag_end']= 0
+
+            try:
+                data300 = data[data.IndexCode == '000300.SH']
+                data300.OutDate[data300.OutDate > tradingDay] = np.nan
+                t_start = pd.pivot_table(data300, values='flag_start', index='InDate', columns='SecuCode')
+                t_end = pd.pivot_table(data300, values='flag_end', index='OutDate', columns='SecuCode')
+                dateTotal = reduce(np.union1d, (t_start.index.values,t_end.index.values,str(tradingDay)))
+                t_start = pd.DataFrame(t_start, index=dateTotal, columns=self.tickerUnivSR)
+                t_end = pd.DataFrame(t_end, index=dateTotal, columns=self.tickerUnivSR)
+                IndexConstM = t_start
+                IndexConstM[t_end == 0] = 0
+                IndexConstM = IndexConstM.fillna(method='pad')
+                IndexConstM = pd.DataFrame(IndexConstM,index=[str(tradingDay)],columns=self.tickerUnivSR)
+                hs300ConstC_IndexConstM = IndexConstM.fillna(0).astype(int)
+            except:
+                hs300ConstC_IndexConstM = pd.DataFrame(index=[str(tradingDay)],columns=self.tickerUnivSR).fillna(0).astype(int)
+
+            try:
+                data50 = data[data.IndexCode == '000016.SH']
+                data50.OutDate[data50.OutDate > tradingDay] = np.nan
+                t_start = pd.pivot_table(data50, values='flag_start', index='InDate', columns='SecuCode')
+                t_end = pd.pivot_table(data50, values='flag_end', index='OutDate', columns='SecuCode')
+                dateTotal = reduce(np.union1d, (t_start.index.values,t_end.index.values,str(tradingDay)))
+                t_start = pd.DataFrame(t_start, index=dateTotal, columns=self.tickerUnivSR)
+                t_end = pd.DataFrame(t_end, index=dateTotal, columns=self.tickerUnivSR)
+                IndexConstM = t_start
+                IndexConstM[t_end == 0] = 0
+                IndexConstM = IndexConstM.fillna(method='pad')
+                IndexConstM = pd.DataFrame(IndexConstM,index=[str(tradingDay)],columns=self.tickerUnivSR)
+                sz50ConstC_IndexConstM = IndexConstM.fillna(0).astype(int)
+            except:
+                sz50ConstC_IndexConstM = pd.DataFrame(index=[str(tradingDay)],columns=self.tickerUnivSR).fillna(0).astype(int)
+
+            try:
+                data500 = data[data.IndexCode == '000905.SH']
+                data500.OutDate[data500.OutDate > tradingDay] = np.nan
+                t_start = pd.pivot_table(data500, values='flag_start', index='InDate', columns='SecuCode')
+                t_end = pd.pivot_table(data500, values='flag_end', index='OutDate', columns='SecuCode')
+                dateTotal = reduce(np.union1d, (t_start.index.values,t_end.index.values,str(tradingDay)))
+                t_start = pd.DataFrame(t_start, index=dateTotal, columns=self.tickerUnivSR)
+                t_end = pd.DataFrame(t_end, index=dateTotal, columns=self.tickerUnivSR)
+                IndexConstM = t_start
+                IndexConstM[t_end == 0] = 0
+                IndexConstM = IndexConstM.fillna(method='pad')
+                IndexConstM = pd.DataFrame(IndexConstM,index=[str(tradingDay)],columns=self.tickerUnivSR)
+                zz500ConstC_IndexConstM = IndexConstM.fillna(0).astype(int)
+
+            except:
+                zz500ConstC_IndexConstM = pd.DataFrame(index=[str(tradingDay)],columns=self.tickerUnivSR).fillna(0).astype(int)
+
+        else:
+            data = pd.read_sql_query(sql, conn243)
+            file2 = open('../data/rawData/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay) - 1]),'rb')
+            Index300Pre = pickle.load(file2)['hs300ConstC_IndexConstM']
+            Index50Pre = pickle.load(file2)['sz50ConstC_IndexConstM']
+            Index500Pre = pickle.load(file2)['zz500ConstC_IndexConstM']
+            file2.close()
+
         file2 = open(self.rawData_path+tradingDay+'.pkl', 'wb')
         dic = {'preCloseM': preCloseM,
                'openM': openM,
@@ -390,7 +480,10 @@ class dailyQuant(object):
                'adjFactorM': adjFactorM,
                'listedM': listedM,
                'suspM': suspM,
-               'stStateM': stStateM
+               'stStateM': stStateM,
+               'hs300ConstC_IndexConstM': hs300ConstC_IndexConstM,
+               'sz50ConstC_IndexConstM': sz50ConstC_IndexConstM,
+               'zz500ConstC_IndexConstM': zz500ConstC_IndexConstM
                }
         pickle.dump(dic, file2)
         file2.close()
