@@ -9,8 +9,8 @@ import os
 import pymssql
 
 startDate_default = '20060101'
-# endDate_default = (datetime.now() + timedelta(days=-1)).strftime('%Y%m%d')
-endDate_default = datetime.now().strftime('%Y%m%d')
+endDate_default = (datetime.now() + timedelta(days=-1)).strftime('%Y%m%d')
+# endDate_default = datetime.now().strftime('%Y%m%d')
 indexTickerUnivSR_default = np.array(['000300.SH', '000016.SH', '000905.SH'])
 indexTickerNameUnivSR_default = np.array(['沪深300', '上证50', '中证500'])
 
@@ -659,7 +659,7 @@ class dailyQuant(object):
 
 
 if __name__ == '__main__':
-    db = dailyQuant(startDate=20060101, endDate=20190114)
+    db = dailyQuant()
     db.get_tradingData()
 
 
