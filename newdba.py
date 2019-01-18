@@ -251,42 +251,65 @@ class dailyQuant(object):
         on A.[InnerCode]=B.[InnerCode] 
         and B.SecuMarket in (83,90) 
         and B.SecuCategory=1 
-        '''
-
-        dataSusp = pd.read_sql_query(sql, conn243)
-
-        flagMarket = dataSusp.SecuMarket == 83
-        dataSusp['SecuCode'][flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SH')
-        dataSusp['SecuCode'][~flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SZ')
-
-        dataSusp.SuspendDate = dataSusp.SuspendDate.map(lambda x: x.strftime('%Y%m%d'))
-
-        dataSusp['flag'] = 1
-        startFlag = pd.pivot_table(dataSusp[dataSusp['SuspendDate']==tradingDay], values='flag', index='SuspendDate', columns='SecuCode')
-        try:
-            startFlag = pd.DataFrame(startFlag, index=[str(tradingDay)], columns=self.tickerUnivSR)
-        except:
-            startFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
-        endFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
-
-        amount = amountM.fillna(0)
-        flag = (amount == 0)
-
-        endFlag[startFlag == 1] = 1
-        endFlag[~flag] = 0
+        where A.[SuspendDate] = '%s'
+        '''%tradingDay
 
         if tradingDay == self.tradingDateV[0]:
+            sql = sql.replace('A.[SuspendDate] = ','A.[SuspendDate] <= ')
+            dataSusp = pd.read_sql_query(sql, conn243)
+
+            flagMarket = dataSusp.SecuMarket == 83
+            dataSusp['SecuCode'][flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SH')
+            dataSusp['SecuCode'][~flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SZ')
+            dataSusp.SuspendDate = dataSusp.SuspendDate.map(lambda x: x.strftime('%Y%m%d'))
+
+            dataSusp['flag'] = 1
+            startFlag = pd.pivot_table(dataSusp, values='flag',index='SuspendDate', columns='SecuCode')
+            try:
+                startFlag = pd.DataFrame(startFlag, index=[str(tradingDay)], columns=self.tickerUnivSR)
+            except:
+                startFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+            endFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+
+            amount = amountM.fillna(0)
+            flag = (amount == 0)
+
+            endFlag[startFlag == 1] = 1
+            endFlag[flag] = 1
             suspM = endFlag.fillna(0)
+            suspM[(listedM==0)] = 1
 
         else:
-            file2 = open('../data/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
+            dataSusp = pd.read_sql_query(sql, conn243)
+
+            flagMarket = dataSusp.SecuMarket == 83
+            dataSusp['SecuCode'][flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SH')
+            dataSusp['SecuCode'][~flagMarket] = dataSusp['SecuCode'].map(lambda x: x + '.SZ')
+            dataSusp.SuspendDate = dataSusp.SuspendDate.map(lambda x: x.strftime('%Y%m%d'))
+
+            file2 = open('../data/rawData/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
             suspPre = pickle.load(file2)['suspM']
             file2.close()
-            suspM = pd.concat([suspPre,endFlag],axis=1).fillna(method='pad')
+
+            dataSusp['flag'] = 1
+            startFlag = pd.pivot_table(dataSusp, values='flag',index='SuspendDate', columns='SecuCode')
+            try:
+                startFlag = pd.DataFrame(startFlag, index=[str(tradingDay)], columns=self.tickerUnivSR)
+            except:
+                startFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+            endFlag = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+
+            amount = amountM.fillna(0)
+            flag = (amount == 0)
+
+            endFlag[startFlag == 1] = 1
+            endFlag[~flag] = 0
+
+            suspM = pd.concat([suspPre,endFlag]).fillna(method='pad')
 
             suspM = pd.DataFrame(suspM,index=[str(tradingDay)])
 
-        suspM[listedM == 0] = 0
+            suspM[(listedM==0)] = 1
 
         sql='''
         SELECT A.[SpecialTradeTime],A.[SpecialTradeType],B.[SecuCode],B.[SecuMarket] 
@@ -320,25 +343,40 @@ class dailyQuant(object):
             stStateM = stStateM.fillna(0)
 
         else:
-            dataV = pd.read_sql_query(sql, conn243)
+            try:
+                file2 = open('../data/rawData/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
+                stStatePre = pickle.load(file2)['stStateM']
+                file2.close()
 
-            flagMarket = dataV.SecuMarket == 83
-            dataV['SecuCode'][flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SH')
-            dataV['SecuCode'][~flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SZ')
-            dataV.SpecialTradeTime = dataV.SpecialTradeTime.map(lambda x: x.strftime('%Y%m%d'))
+                dataV = pd.read_sql_query(sql, conn243)
 
-            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 5] = 1
-            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 2] = 0
-            dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 6] = 0
+                flagMarket = dataV.SecuMarket == 83
+                dataV['SecuCode'][flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SH')
+                dataV['SecuCode'][~flagMarket] = dataV['SecuCode'].map(lambda x: x + '.SZ')
+                dataV.SpecialTradeTime = dataV.SpecialTradeTime.map(lambda x: x.strftime('%Y%m%d'))
 
-            stStateM = pd.pivot_table(dataV, values='SpecialTradeType', index='SpecialTradeTime', columns='SecuCode')
-            file2 = open('../data/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
-            stStatePre = pickle.load(file2)['stStateM']
-            file2.close()
-            stStateM = pd.concat([stStatePre,stStateM],axis=1).fillna(method='pad')
+                dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 5] = 1
+                dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 2] = 0
+                dataV['SpecialTradeType'][dataV['SpecialTradeType'] == 6] = 0
 
-            stStateM = pd.DataFrame(stStateM, index=[str(tradingDay)])
-            stStateM = stStateM.fillna(0)
+                stStateM = pd.pivot_table(dataV, values='SpecialTradeType', index='SpecialTradeTime', columns='SecuCode')
+                stStateM = pd.concat([stStatePre,stStateM]).fillna(method='pad')
+
+            except:
+
+                file2 = open('../data/rawData/{}.pkl'.format(self.tradingDateV[self.tradingDateV.tolist().index(tradingDay)-1]), 'rb')
+                stStatePre = pickle.load(file2)['stStateM']
+                file2.close()
+
+                stStateM = pd.DataFrame(index=[str(tradingDay)], columns=self.tickerUnivSR)
+                stStateM = pd.concat([stStatePre,stStateM]).fillna(method='pad')
+
+                # stStateM = pd.DataFrame(stStatePre,index=np.concatenate([stStatePre.index.values,str(tradingDay)]))
+                # stStateM = stStateM.fillna(method='pad')
+            finally:
+
+                stStateM = pd.DataFrame(stStateM, index=[str(tradingDay)])
+                stStateM = stStateM.fillna(0).astype(int)
 
         file2 = open(self.rawData_path+tradingDay+'.pkl', 'wb')
         dic = {'preCloseM': preCloseM,
