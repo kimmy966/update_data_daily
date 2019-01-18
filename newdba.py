@@ -38,9 +38,8 @@ class dailyQuant(object):
         SELECT [tradingday]
         FROM [Group_General].[dbo].[TradingDayList]
         where tradingday>='20060101'
-        and tradingday<='%s'
         order by tradingday asc
-        ''' % self.endDate
+        '''
 
         dateSV = pd.read_sql(sql, conn247)
 
@@ -533,6 +532,112 @@ class dailyQuant(object):
                 IndexConstM = pd.DataFrame(index=[str(tradingDay)],columns=self.tickerUnivSR)
                 zz500ConstC_IndexConstM = pd.concat([Index500Pre,IndexConstM]).fillna(method='pad')
 
+        # sql = '''
+        # SELECT A.[InfoPublDate],A.[CancelDate],A.[FirstIndustryName],B.[SecuCode],B.[SecuMarket]
+        # FROM [JYDB].[dbo].[LC_ExgIndustry] A
+        # inner join [JYDB].[dbo].[SecuMain] B
+        # on A.[CompanyCode]=B.[CompanyCode]
+        # and B.SecuMarket in (83,90)
+        # and B.SecuCategory=1
+        # where A.Standard = 3 and A.[InfoPublDate] = '%s' or A.[CancelDate] = '%s'
+        #
+        # '''%(tradingDay,tradingDay)
+        #
+        # sql = sql.replace('A.[InfoPublDate] = ', 'A.[InfoPublDate] <= ').replace('A.[CancelDate] = ', 'A.[CancelDate] <= ')
+        # data = pd.read_sql_query(sql, conn243)
+        #
+        # data.CancelDate[data.CancelDate > tradingDay] = np.nan
+        #
+        # flagMarket = data.SecuMarket == 83
+        # data['SecuCode'][flagMarket] = data['SecuCode'].map(lambda x: x + '.SH')
+        # data['SecuCode'][~flagMarket] = data['SecuCode'].map(lambda x: x + '.SZ')
+
+        sql = '''
+        SELECT A.[InfoPublDate],A.[CancelDate],A.[FirstIndustryName],B.[SecuCode],B.[SecuMarket] 
+        FROM [JYDB].[dbo].[LC_ExgIndustry] A 
+        inner join [JYDB].[dbo].[SecuMain] B 
+        on A.[CompanyCode]=B.[CompanyCode] 
+        and B.SecuMarket in (83,90) 
+        and B.SecuCategory=1 
+        where A.Standard = 3
+        '''
+
+        data = pd.read_sql_query(sql, conn243)
+
+        flagMarket = data.SecuMarket == 83
+        data['SecuCode'][flagMarket] = data['SecuCode'].map(lambda x: x + '.SH')
+        data['SecuCode'][~flagMarket] = data['SecuCode'].map(lambda x: x + '.SZ')
+        #        data.InfoPublDate = data.InfoPublDate.map(lambda x: x.strftime('%Y%m%d'))
+        #        flagDate = pd.notnull(data.CancelDate)
+        #        data.CancelDate[flagDate] = data.CancelDate[flagDate].map(lambda x: x.strftime('%Y%m%d'))
+
+        industryName = {'石油石化': '1',
+                        '煤炭': '2',
+                        '有色金属': '3',
+                        '电力及公用事业': '4',
+                        '钢铁': '5',
+                        '基础化工': '6',
+                        '建筑': '7',
+                        '建材': '8',
+                        '轻工制造': '9',
+                        '机械': '10',
+                        '电力设备': '11',
+                        '国防军工': '12',
+                        '汽车': '13',
+                        '商贸零售': '14',
+                        '餐饮旅游': '15',
+                        '家电': '16',
+                        '纺织服装': '17',
+                        '医药': '18',
+                        '食品饮料': '19',
+                        '农林牧渔': '20',
+                        '银行': '21',
+                        '非银行金融': '22',
+                        '房地产': '23',
+                        '交通运输': '24',
+                        '电子元器件': '25',
+                        '通信': '26',
+                        '计算机': '27',
+                        '传媒': '28',
+                        '综合': '29'}
+
+        # rev dict
+        rev_industryName = {v: k for k, v in industryName.items()}
+        lst = []
+        for k, v in rev_industryName.items():
+            lst.append(v)
+        industryNameV = pd.DataFrame(lst, index=np.arange(1, 30), columns=['Name'])
+
+        nDates = len(self.tradingDateV)
+        nStocks = len(self.tickerUnivSR)
+        nMessages = len(data)
+        industryM = np.full((nDates, nStocks), np.nan)
+
+        timeStamp = pd.to_datetime('2262-04-11', format='%Y%m%d', errors='ignore')
+
+        flag = np.in1d(data['SecuCode'], self.tickerUnivSR)
+
+        data = data.values
+
+        for i in range(nMessages):
+            if flag[i]:
+                iStock = self.tickerUnivSR.tolist().index(data[i, 3])
+                enterDate = data[i, 0]
+                if pd.isnull(data[i, 1]):
+                    removeDate = timeStamp
+                else:
+                    removeDate = data[i, 1]
+            flagV = (self.timeSeries >= enterDate) & (self.timeSeries < removeDate)
+            industryM[flagV, iStock] = industryName[data[i, 2]]
+
+        industryCiticsM = pd.DataFrame(industryM, index=self.tradingDateV, columns=self.tickerUnivSR)
+        industryCiticsM['T00018.SH'] = 24
+        industryCiticsM.fillna(method='pad', inplace=True)
+        industryCiticsM.fillna(method='backfill', inplace=True)
+
+        industryCiticsM = pd.DataFrame(industryCiticsM,index=[str(tradingDay)])
+        industryNameV.to_csv(self.rawData_path+'industryCiticsNameV.csv')
+
         file2 = open(self.rawData_path+tradingDay+'.pkl', 'wb')
         dic = {'preCloseM': preCloseM,
                'openM': openM,
@@ -548,7 +653,8 @@ class dailyQuant(object):
                'stStateM': stStateM,
                'hs300ConstC_IndexConstM': hs300ConstC_IndexConstM,
                'sz50ConstC_IndexConstM': sz50ConstC_IndexConstM,
-               'zz500ConstC_IndexConstM': zz500ConstC_IndexConstM
+               'zz500ConstC_IndexConstM': zz500ConstC_IndexConstM,
+               'industryCiticsM': industryCiticsM
                }
         pickle.dump(dic, file2)
         file2.close()
